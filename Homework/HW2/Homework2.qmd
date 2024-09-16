@@ -1,0 +1,491 @@
+---
+title: "STAT 32950: Homework 2"
+author: "Robert Winter"
+format: pdf
+editor: visual
+
+highlight-style: pygments
+geometry:
+      - top=30mm
+      - left=30mm
+toc: true
+toc-title: Table of Contents
+number-sections: true
+
+# Suppress output for assignments
+echo: true
+warning: false
+output: true
+
+# Wrap code chunk text
+include-in-header:
+  text: |
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+---
+
+```{r}
+#| echo: FALSE
+
+library(tidyverse)
+library(ggplot2)
+library(ggrepel)
+library(cowplot)
+library(MASS)
+library(gt)
+```
+
+# Exercise 2: Basic Principal Component Analysis
+
+**Use the same dataset `ladyrun24.dat` on national track records for women as used in Assignment 1. The nominal variable `Country` should be excluded in numerical calculations.**
+
+```{r}
+#| echo: FALSE
+
+ladyrun = read.table("C:/Users/rewin/OneDrive/Documents/STAT_32950/Homework/HW2/ladyrun24.dat")
+colnames(ladyrun) = c("Country", "d100m", "d200m", "d400m", "d800m", "d1500m", "d3000m", "Marathon")
+
+#ladyrun_times = select(ladyrun, select = -Country)
+```
+
+## Part (a)
+
+**Determine the first two principal components for the scaled data with variable variance** $=1$**, express the two principal components as linear combinations of the scaled variables. State the meaning of the (scaled) variables that the principal components consist of. (Recall that a PC variable is unique up to a multiple of** $\pm 1$**).**
+
+As shown in the R output below, the first principal component of the scaled data has the form
+
+$$
+\begin{aligned}
+PC1 = & \; 0.372\times100\mathrm{m} + 0.374\times200\mathrm{m} + 0.375\times400\mathrm{m} + 0.395\times800\mathrm{m} \\
+& + 0.396\times1500\mathrm{m} + 0.383\times3000\mathrm{m} + 0.349\times\mathrm{Marathon},
+\end{aligned}
+$$
+
+and the second principal component of the scaled data has the form
+
+$$
+\begin{aligned}
+PC2 =& \; 0.458\times100\mathrm{m} + 0.480\times200\mathrm{m} + 0.331\times400\mathrm{m} -0.221\times800\mathrm{m} \\
+& -0.231\times1500\mathrm{m} -0.318\times3000\mathrm{m} - 0.497\times\mathrm{Marathon}.
+\end{aligned}
+$$
+
+Each of the above principal components may alternatively be expressed by multiplying all coefficients by a factor of $-1$, essentially "flipping" the direction of the PC vector to point in the opposite direction.
+
+```{r}
+PC = princomp(dplyr::select(ladyrun, select = -Country), cor = T)
+summary(PC, loading = TRUE, digits = 3)
+```
+
+By scaling the data such that each track distance has variance 1, we are essentially normalizing the national records for each distance so that their deviations from the mean are on the same scale. For example, consider the 100m dash compared to the marathon run: while elite athletes can complete the former in a matter of seconds, the latter is run over the course of more than two hours. As such, national records for the marathon can vary by minutes, but national records for the 100m dash may vary by only fractions of a second — since the race is so short, there is not as much time for differences in performance to accumulate. Scaling each variable to unit variance ensures that the multi-minute variability of marathon records does not overpower the decisecond variability of 100m dash records in calculating principal components.
+
+## Part (b)
+
+**Compare the two principal components PC1 and PC2 with the eigenvectors of the sample correlation matrix (which you obtained in Question 1(f) in Assignment 1).**
+
+In Assignment 1, Question 1(f), we found that the eigenvectors of the correlation matrix of the `ladyrun` data were as follows:
+
+```{r}
+eigen(cor(dplyr::select(ladyrun, -Country)))$vectors %>% round(3)
+```
+
+Observe that the first two columns of the output above, which correspond to the first and second eigenvectors of the correlation matrix, are identical to the first and second principal components we identified in Part (a) (though with opposite signs, as principal components are unique up to a multiple of $\pm 1$).
+
+## Part (c)
+
+**What are the percentages of total (scaled data) sample variation explained by the first and second principal components you described in Part (a)?**
+
+As shown in the code output of Part (a), the first principal component explains roughly $81.4\%$ of the total variation in the (scaled) data. The second principal component explains an incremental $10.5\%$ of the total variation in the (scaled) data. So, together, the first two principal components explain nearly $92.0\%$ of the total variation in the (scaled) data.
+
+## Part (d)
+
+**Plots and interpretations.**
+
+### Part (i)
+
+**Now every observation has its coordinates in the space of principal components (PC1, ..., PC7) obtained using the scaled data (of variable variance 1). Construct a two-dimensional scatterplot of the 54 observations in the (PC1, PC2) plane. Compare the values of PC1 scores of the countries of the athletes with their approximate ranking (i.e., goodness or levels of overall performance) in track records.**
+
+Below, we plot the 54 countries' national women's track records in the (PC1, PC2) plane. In particular, notice that we have labeled the three countries with the largest values of the first principal component (Samoa, the Cook Islands, and Papua New Guinea), as well as the two countries with the smallest values of the first principal component (China and the US). In the excerpt from the data table printed below the scatterplot, notice that the US and China have significantly faster records across all distances compared to Samoa, the Cook Islands, and Papua New Guinea. This suggests that the first principal component captures a country's overall standing across all distances in the dataset, with lower PC1 scores corresponding to faster national records across distances, and higher PC1 scores corresponding to slower national records across distances.
+
+```{r}
+ggplot(as.data.frame(PC$scores), aes(x=Comp.1, y = Comp.2,
+                                     label = ladyrun$Country)) +
+  theme_bw() +
+  geom_point() +
+  geom_text_repel(aes(label = ifelse(Comp.1 < -3.2 | Comp.1 > 4,
+                               as.character(ladyrun$Country), ""))) +
+  scale_x_continuous(breaks = c(-10:15),
+                     minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  ggtitle("National Women's Track Records in the (PC1, PC2) Plane") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+# Rank countries by value of PC1, call out the highest and lowest
+rankingPC1 = order(PC$scores[,1], decreasing = T)
+ladyrun[rankingPC1,] %>% filter(Country %in% c("SAM", "COK", "PNG", "USA", "CHN"))
+```
+
+### Part (ii)
+
+**Now every variable has its loading coefficients on each of the principle components (PC1, ..., PC7) obtained using the scaled data (of variable variance 1). Construct a two-dimensional scatterplot of the 7 original variables (all but the `Country` variable) in the (PC1, PC2) plane. Comment on the pattern of the variable loadings (coefficients) in PC2.**
+
+Below, we plot the seven race distance variables in the (PC1, PC2) plane using their principal component loadings. Observe that short-distance races (the 100m, 200m, and 400m dashes) all have PC2 loadings greater than 0. Meanwhile, the middle- and long-distances races (the 800m, 1500m, 3000m, and marathon runs) all have PC2 loadings less than 0. This suggests that the second principal component captures a "distance level" (i.e., short vs. middle- or long-distance) component of the data.
+
+```{r}
+dists = c("100m", "200m", "400m", "800m", "1500m", "3000m", "Marathon")
+
+ggplot(as.data.frame(PC$loadings[1:7,]),
+       aes(x = Comp.1, y = Comp.2, label = dists)) +
+  theme_bw() +
+  geom_point() +
+  geom_text_repel() +
+  scale_x_continuous(minor_breaks = NULL) +
+  scale_y_continuous(minor_breaks = NULL) +
+  ggtitle("Track Distances in Principal Component Loadings") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+#| echo: FALSE
+
+# Base R
+# plot(PC$loadings[,1:2], type = "n")
+# text(PC$loadings[,1:2],
+#      labels = colnames(select(ladyrun, -Country)),
+#      cex = 0.8,
+#      col = c(4, 4, 4, 2, 2, 2, 2))
+```
+
+# Exercise 3: Scaling Effects in Principal Component Analysis
+
+**Download data `Harman5.txt`. The measurements are on five socioeconomic variables for each of 12 census tracts (years ago). Use the data to conduct Principal Component Analysis, using the original data as well as scaled data (by making each variable of variance 1, equivalent to using the correlation matrix.**
+
+```{r}
+#| echo: FALSE
+
+harman5 = read.table("C:/Users/rewin/OneDrive/Documents/STAT_32950/Homework/HW2/Harman5.txt")
+```
+
+```{r}
+Q3PCAcov = princomp(harman5, cor = FALSE) # raw data
+Q3PCAcor = princomp(harman5, cor = TRUE) # scaled data
+```
+
+## Part (a)
+
+**In each of the two cases, how many principal components are needed to effectively summarize at least 75% of the variability in the data?**
+
+As shown below, when we conduct principal component analysis on the raw (non-scaled) data, the first principal component alone explains roughly $75.3\%$ of the total variation in the data.
+
+```{r}
+summary(Q3PCAcov, loadings = TRUE)
+```
+
+On the other hand, as shown below, when we conduct principal component analysis on the scaled data, two principal components are necessary to explain more than $75\%$ of the total variation in the data. In particular, the first principal component explains $57.5\%$ of the total variation in the data, and the second principal component explains an additional $35.9\%$ of the variation, such that the two components together explain $93.4\%$ of the variation.
+
+```{r}
+summary(Q3PCAcor, loadings = TRUE)
+```
+
+## Part (b)
+
+**Plot two scree plots, one from PCA based on the original data, one based on the standardized data.**
+
+```{r}
+#| echo: FALSE
+
+# Non-scaled data
+#Q3variances_cov = Q3PCAcov$sdev^2 / sum(Q3PCAcov$sdev^2) # Propor of variance
+Q3variances_cov = Q3PCAcov$sdev^2
+Q3variances_cov = as.data.frame(as.table(Q3variances_cov))
+Q3variances_cov$Var1 = c("PC1", "PC2", "PC3", "PC4", "PC5")
+
+Q3b_plot1 = ggplot(data = Q3variances_cov, aes(x = Var1,
+                                   y = Freq)) +
+  theme_bw() +
+  geom_line(aes(group=1)) +
+  geom_point(size = 2) +
+  xlab("Principal Components") +
+  ylab("Variances") +
+  ggtitle("PCA: Non-Scaled Data") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Scaled data
+# Q3variances_cor = Q3PCAcor$sdev^2 / sum(Q3PCAcor$sdev^2) # Propor of variance
+Q3variances_cor = Q3PCAcor$sdev^2
+Q3variances_cor = as.data.frame(as.table(Q3variances_cor))
+Q3variances_cor$Var1 = c("PC1", "PC2", "PC3", "PC4", "PC5")
+
+Q3b_plot2 = ggplot(data = Q3variances_cor, aes(x = Var1,
+                                   y = Freq)) +
+  theme_bw() +
+  geom_line(aes(group=1)) +
+  geom_point(size = 2) +
+  xlab("Principal Components") +
+  ylab("Variances") +
+  ggtitle("PCA: Scaled Data") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Side-by-side plot
+plot_grid(Q3b_plot1, Q3b_plot2)
+
+# Base R
+# par(mfrow=c(1,2))
+# screeplot(Q3PCAcov, type = "l", main = "PCA: Non-Scaled Data")
+# screeplot(Q3PCAcor, type = "l", main = "PCA: Scaled Data")
+```
+
+## Part (c)
+
+**Compare and comment, based on the coefficients (loadings) of the first principal component in each case, and using the results in Parts (a) and (b). Which analysis result is better? Why?**
+
+As shown in Part (a), when we perform principal component analysis using non-scaled data, the first principal component ("PC1") is comprised almost entirely of the house value variable. When we perform principal component analysis using scaled data, however, PC1 is comprised of a mixture of all five variables in the dataset, with loadings on each ranging from $0.343$ to $0.550$.
+
+This discrepancy is a result of the vastly different scales of the five variables. For instance, `housevalue` values are on the fourth order of magnitude (i.e., have values around $10,000$), while `schooling` values are on the first order of magnitude (i.e., have values around $10$). When we do not scale the data, variation in `housevalue` dominates the overall variation in the data, and so PC1 practically coincides with the `housevalue` axis. We can also see this in the fact that it just takes PC1 to explain at least 75% of the variation in the non-scaled data, as shown in Part (b). When we normalize the data so that deviations from each variable's mean are on the same scale, deviations from the means of variables other than `housevalue` no longer seem so minuscule. Variation in these variables now contributes to the direction of PC1. Since the total variation in the data is no longer "artificially" dominated by `housevalue`, it now takes a second principal component to explain at least 75% of the variation in the data, as shown in Part (b).
+
+Ultimately, the PCA on the scaled data is the more useful of the two. By putting every variable on the same scale of variability, this analysis allows for dimensionality reduction that reflects the variation in every variable, rather than just the variables that happen to be measured on greater orders of magnitude.
+
+# Exercise 4: Simulation on Consistency and Sparsity of High Dimensional PCA
+
+**Let** $X \sim \mathcal{N}_p (\mathbf{0}, \Sigma)$**, and** $v_1$ **be an eigenvector of the largest eigenvalue of** $\Sigma$**. (Assuming the largest eigenvalue of** $\Sigma$ **is unique, strictly larger than other eigenvalues.)**
+
+## Part (a)
+
+**Consider a sample of size** $n$ **drawn from** $\mathcal{N}_p(\mathbf{0},\Sigma)$ **with** $n>p$**. Suppose you conducted a principal component analysis on the sample data and obtained the first sample principal component** $Y = \hat{e}^T_1 X$**. According to your reasoning, what should be the approximately value of the correlation (i.e., Pearson correlation coefficient)** $\rho = \mathrm{Corr}(\hat{e}_1, v_1)$**? And, what should be the approximate value of** $|\rho|$**?**
+
+The first principal component of a dataset [*is*]{.underline}, by definition, ($\pm1$ times) a unit-length eigenvector corresponding to the largest eigenvalue of the covariance matrix of that dataset. If we are working with a random sample of data, rather than an entire population, then the first principal component of that sample should be *approximately* ($\pm1$ times) a unit-length eigenvector corresponding to the largest eigenvalue of the covariance matrix of the population from which the sample is drawn. In this case, the loadings of the first sample principal component are $\hat{e}_1$, and a unit eigenvector of the largest eigenvalue of $\Sigma$ is $v_1$, meaning that we should have $\hat{e}_1 \approx \pm v_1$. Thus, we would expect $\rho = \mathrm{Corr}(\hat{e}_1, v_1) \approx \pm1$, and $|\rho| \approx 1$.
+
+## Part (b)
+
+**Construct a non-trivial covariance matrix** $\Sigma \ne cI_p$ **(and non-diagonal) for** $p=10$**. Draw a sample of size** $n=50$ **from** $\mathcal{N}_p(\mathbf{0}, \Sigma)$ **using your** $\Sigma$**. Compute** $\rho$ **defined in Part (a). Repeat the above construction and sample draw for** $100$ **times, obtain** $\rho$ **values** $\{\rho_1, \ldots, \rho_{100}\}$**. Plot a histogram for** $|\rho_i|$ **using the** $100$$\rho_i$**'s. Does the distribution of the values of** $\rho$**'s agree with your hypothesis in Part (a)?**
+
+First, we write a function that will handle the simulations throughout this exercise:
+
+```{r}
+rhosim = function(n, p, M){
+  # Function to handle simulations in Parts (b)-(d)
+  
+  set.seed(41) # favorite number
+  
+  # Random covariance matrix Sigma
+  C = replicate(p, rnorm(p))
+  myCov = C %*% t(C)
+  
+  # Simulation for drawing M rhos
+  rhos = rep(0, M)
+  for(i in 1:M){
+    data = mvrnorm(n = n, mu = rep(0,p), Sigma = myCov)
+    samS = cov(data)
+    rhos[i] = cor(eigen(samS)$vector[,1], eigen(myCov)$vector[,1])
+  }
+  
+  return(rhos)
+}
+```
+
+Below, we generate $\{\rho_1,\ldots,\rho_{100}\}$ for $n=50,\; p=10$ and plot the $|\rho_i|$'s in a histogram. Observe that most of the mass of the distribution is around $1$ (or at least between $0.75$ and $1$), which aligns with our prediction in Part (a).
+
+```{r}
+#| echo: FALSE
+
+rhos10 = rhosim(n = 50, p = 10, M = 100) %>% as.data.frame()
+rhos10 = rename(rhos10, rho = .)
+rhos10 = rhos10 %>% mutate(abs_rho = abs(rho))
+
+ggplot(rhos10, aes(x = abs_rho)) +
+  geom_histogram(col = "black", fill = "gray", bins = 20) +
+  theme_bw() +
+  xlim(0,1) + 
+  xlab("|rho|") +
+  ylab("Count") +
+  ggtitle("Distribution of |rho|'s: n = 50, p = 10, M = 100") +
+  theme(plot.title = element_text(hjust = 0.5))
+  
+# Base R
+# hist(rhos10$abs_rho,
+#      nclass = 15,
+#      xlim = c(0,1))
+```
+
+## Part (c)
+
+**Conduct a similar simulation as in Part (b), now with** $p=100$ **(keep** $n=50$**). Plot the histogram of the** $|\rho_i|$**'s. Is this histogram similar to that in Part (b)? Does the distribution of** $|\rho|$**'s agree with your hypothesis in Part (a) this time? What does your result mean in terms of the goodness of the first sample principal component?**
+
+Below, we generate $\{\rho_1,\ldots,\rho_{100}\}$ for $n=50,\; p=100$ and plot the $|\rho_i|$'s in a histogram. This time, notice that most of the mass of the distribution is spread across the interval $[0,0.5]$, and there are *no* indices $i$ for which $|\rho_i|>0.8$, let alone $|\rho_i| \approx 1$. So, not only does this histogram deviate from the one we saw in Part (b), but it runs totally counter to our hypothesis in Part (a)! This is most likely because $p=100$, the dimension of our random vector $X$, now exceeds $n=50$, the size of our sample. Now that $\rho = \mathrm{Corr}(\hat{e}_1,v_1) \not\approx \pm1$, the first sample principal component does *not* closely coincide with an eigenvector corresponding to the largest eigenvalue of $\Sigma$. As such, the first sample principal component no longer does a very good job of capturing the direction of largest variance in the data.
+
+```{r}
+#| echo: FALSE
+
+rhos100 = rhosim(n = 50, p = 100, M = 100) %>% as.data.frame()
+rhos100 = rename(rhos100, rho = .)
+rhos100 = rhos100 %>% mutate(abs_rho = abs(rho))
+
+ggplot(rhos100, aes(x = abs_rho)) +
+  geom_histogram(col = "black", fill = "gray", bins = 20) +
+  theme_bw() +
+  xlim(0,1) +
+  xlab("|rho|") +
+  ylab("Count") +
+  ggtitle("Distribution of |rho|'s: n = 50, p = 100, M = 100") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Base R
+# hist(abs(rhosim(n = 50, p = 100, M = 100)),
+#      nclass = 15,
+#      xlim = c(0,1))
+```
+
+## Part (d)
+
+**Try larger** $p$ **in Part (c) without breaking your laptop (keep** $n-50$**). How far could you go? Plot the histogram(s) and comment.**
+
+Below, we manage to generate $\{\rho_1,\ldots,\rho_{100}\}$ for $n=50,\; p=500$ and plot the $|\rho_i|$'s in a histogram. This time, the results are even worse than in Part (c): most of the mass of the distribution is around $0$, and there are no indices $i$ for which $|\rho_i|>0.5$! Now that the dimension $p=500$ of our random vector $X$ is even larger than our sample size $n=50$ than before, the first sample principal component of the data is even less codirectional with an eigenvector corresponding to the largest eigenvalue of $\Sigma$. Now, the first sample principal component is almost surely useless for visualizing the direction of largest variation in the data.
+
+```{r}
+#| echo: FALSE
+
+rhos500 = rhosim(n = 50, p = 500, M = 100) %>% as.data.frame()
+rhos500 = rename(rhos500, rho = .)
+rhos500 = rhos500 %>% mutate(abs_rho = abs(rho))
+
+ggplot(rhos500, aes(x = abs_rho)) +
+  geom_histogram(col = "black", fill = "gray", bins = 20) +
+  theme_bw() +
+  xlim(0,1) +
+  xlab("|rho|") +
+  ylab("Count") +
+  ggtitle("Distribution of |rho|'s: n = 50, p = 500, M = 100") +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Base R
+# hist(abs(rhosim(n = 50, p = 500, M = 100)),
+#      nclass = 15,
+#      xlim = c(0,1))
+```
+
+## Part (e)
+
+**A researcher acquired data of gene expression levels of 4,000 genes for each of 100 patients. To find which genes are important, the researcher conducted PCA on the data and obtained a nice "L" shape in the scree plot. Subsequently the genes with larger loadings on the first couple of principal components were reported as important. Why is the researcher's conclusion problematic?**
+
+This situation bears a strong resemblance to our simulation in Part (d). The researcher is studying a random vector of gene expression levels with dimension $p=4,000$, but they only have a sample of $n=100$ patients, so that $n \ll p$. We saw in the simulations above that when there are far fewer observations in a sample than there are dimensions of a random vector, PCA yields sample principal components that are weakly correlated with the directions of greatest variation they are intended to identify. So, in this case, the first couple of sample principal components (corresponding to the largest eigenvalues of the sample covariance matrix) most likely do *not* correspond to the directions of greatest variation in gene expression. The researcher's claims that the genes with large loadings on these PCs are "imporant" reveal a failure to acknowledge this fact. In fact, in this case, the researcher's PCA gives little to no evidence that these genes are highly relevant to their work.
+
+# Exercise 5: Factor Analysis Using PC and ML Methods
+
+**Utilize the same data `Harman5.txt` as in Exercise 2 in this assignment.**
+
+## Part (a)
+
+**Obtain the principal component solution to the factor model** $X = \mu + LF + \varepsilon$ **with the number of factors** $m=2$**,**
+
+### Part (i)
+
+**Using original data.**
+
+The loadings on the $m=2$ common factors (i.e., the $m=2$ columns of the $L$ matrix) are as follows:
+
+```{r}
+Q4PCcov = princomp(harman5, cor = FALSE)
+rtev_PCcov = Q4PCcov$sdev
+
+Q4L_PCcov = cbind(rtev_PCcov[1] * Q4PCcov$loading[,1],
+                  rtev_PCcov[2] * Q4PCcov$loading[,2])
+Q4L_PCcov
+```
+
+### Part (ii)
+
+**Using normalized (variance** $=1$**) data.**
+
+The loadings on the $m=2$ common factors (i.e., the $m=2$ columns of the $L$ matrix) are as follows:
+
+```{r}
+Q4PCcor = princomp(harman5, cor = TRUE)
+rtev_PCcor = Q4PCcor$sdev
+
+Q4L_PCcor = cbind(rtev_PCcor[1] * Q4PCcor$loading[,1],
+                  rtev_PCcor[2] * Q4PCcor$loading[,2])
+Q4L_PCcor
+```
+
+## Part (b)
+
+**Find the maximum likelihood estimates of** $L$ **and** $\Psi$ **for** $m=2$**. What happens if you try** $m=3$**?**
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+
+# Normalized data (variance = 1)
+# harman5_norm = (as.matrix(harman5)) %*% diag(1/sqrt(diag(cov(harman5))))
+# cov(harman5_norm)
+```
+
+### Part (i): $m=2$ Factors
+
+For $m=2$ factors, the maximum likelihood estimate of the $L$ matrix is as follows:
+
+```{r}
+Q4_ML2 = factanal(harman5, 2, rotation = "none")
+Q4L_ML2 = Q4_ML2$loadings[1:5,1:2]
+Q4L_ML2
+```
+
+and the maximum likelihood estimate of the $\Psi$ matrix is as follows:
+
+```{r}
+Q4Psi_ML2 = Q4_ML2$uniq %>% round(3) %>% diag()
+Q4Psi_ML2
+```
+
+### Part (ii): $m=3$ Factors
+
+When we attempt to estimate the factor model using the maximum likelihood procedure for $m=3$ factors, we receive the following error message.
+
+```{r}
+#| eval: FALSE
+
+Q4_ML3 = factanal(harman5, 3, rotation = "none")
+```
+
+*`Error in factanal(harman5, 3, rotation = "none"):`*
+
+*`3 factors are too many for 5 variables`*
+
+Recall that the degrees of freedom associated with the maximum likelihood procedure is $df=\frac{(p-m)^2-p-m}{2}$. Here, if we tried to use three factors, $p=5$ and $m=3$, so the degrees of freedom would be $df = \frac{(5-3)^2-5-3}{2} = -2 < 0$. As such, the model cannot be estimated using the ML procedure for $m=3$ factors.
+
+## Part (c)
+
+**Compare the factors obtained by principal component methods and by maximum likelihood, especially on their estimates of the covariance or correlation matrix. Compare the entries in the residual matrices. Which method is better in estimating the correlation matrix?**
+
+Using the principal component method with $m=2$ factors on the correlation matrix (i.e., on data with standardized variances), the residual matrix is as follows:
+
+```{r}
+resid_PC = cor(harman5) - Q4L_PCcor%*%t(Q4L_PCcor) -
+           diag(rep(1,5)) - diag(Q4L_PCcor%*%t(Q4L_PCcor))
+resid_PC %>% round(3)
+```
+
+Under the principal component approach, the sum of absolute residuals and the sum of squared residuals are as follows:
+
+```{r}
+c(sum(abs(resid_PC)),
+  sum(resid_PC^2))
+```
+
+Meanwhile, using the maximum likelihood method with $m=2$ factors (which is necessarily on the correlation matrix), the residual matrix is:
+
+```{r}
+resid_ML = cor(harman5) - Q4L_ML2%*%t(Q4L_ML2) - Q4Psi_ML2
+resid_ML %>% round(3)
+```
+
+Under the maximum likelihood approach, the sum of absolute residuals and the sum of squared residuals are now:
+
+```{r}
+c(sum(abs(resid_ML)),
+  sum(resid_ML^2))
+```
+
+Notice that the sum of absolute residuals and the sum of squared residuals are each significantly smaller using the ML method compared to the PC method. As such, the ML method is better at estimating the correlation matrix for these data.

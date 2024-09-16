@@ -1,0 +1,497 @@
+---
+title: "STAT 32950: Homework 7"
+author: "Robert Winter"
+format: pdf
+editor: visual
+
+geometry:
+      - top=30mm
+      - left=30mm
+toc: true
+toc-title: Table of Contents
+number-sections: true
+
+# Suppress output for assignments
+echo: true
+warning: false
+output: true
+
+# Wrap code chunk text
+include-in-header:
+  text: |
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+---
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+
+library(tidyverse)
+library(ggplot2)
+library(MASS)
+library(glmnet)
+library(elasticnet)
+library(ggrepel)
+library(fastICA)
+library(gridExtra)
+```
+
+# Exercise 1: Least Squares vs. Ridge Regression
+
+**Consider the linear regression model**
+
+$$
+Y = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \varepsilon.
+$$
+
+**Generate the data using the following R commands:**
+
+```{r}
+set.seed(41)
+
+x1 = rnorm(30)
+x2 = x1 + rnorm(30, sd=0.01)
+Y = rnorm(30, mean = 3+x1+x2)
+
+q1data = cbind(Y, x1, x2) %>% as.data.frame()
+```
+
+## Part (a)
+
+**Write the fitted model with estimated parameters by the least squares method (LS). The R command for fitting the LS model is `lm(Y~x1+x2)`.**
+
+First, we fit the model using ordinary least squares:
+
+```{r}
+lm(Y ~ x1 + x2, data = q1data) %>% summary()
+```
+
+The fitted model is approximately
+
+$$
+\begin{aligned}
+\hat{Y} &= \hat{\beta_0} + \hat{\beta}_1 x_1 + \hat{\beta}_2 x_2 \\
+&= 3.119 - 22.498x_1 + 24.695x_2.
+\end{aligned}
+$$
+
+## Part (b)
+
+**What is the true model with the true** $\beta_i$**'s? Are the parameter estimates of the LS model in Part (a) good? Why so?**
+
+The true model is
+
+$$
+\begin{aligned}
+Y &= \beta_0 + \beta_1 x_1 + \beta_2 x_2 + \varepsilon \\
+&= 3 + x_1 + x_2 + \varepsilon.
+\end{aligned}
+$$
+
+Our least squares estimate of the intercept term is pretty good: $\hat{\beta}_0 = 3.119 \approx 3 = \beta_0$. However, the least squares estimates of the coefficients on $x_1$ and $x_2$ are far from the truth: $\hat{\beta}_1 = -22.498$ is far from $\beta_1 = 1$, and $\hat{\beta}_2 = 24.695$ is far from $\beta_2=1$. The poor performance of the estimators $\hat{\beta}_1$ and $\hat{\beta}_2$ is not surprising. Since $x_2$ is constructed by jittering $x_1$ by a mean-zero normal distribution with very small standard deviation, the correlation between $x_1$ and $x_2$ is high. In fact, $\mathrm{Corr}(x_1,x_2) \approx 0.99997 \approx 1$! Least squares estimation is unstable (hence not very good) when covariates are highly correlated, as they are here. This is why our estimates $\hat{\beta}_1$ and $\hat{\beta}_2$ are far from their true values and have very large standard errors, with neither estimate being statistically significantly different from $0$.
+
+```{r}
+cor(q1data$x1, q1data$x2)
+```
+
+## Part (c)
+
+**Compute the residual sum of squares (RSS) of the fitted LS model and the RSS of the true model.**
+
+$$
+RSS = \sum_{j=1}^n \Big[y_j - \big(\hat{\beta}_0 + \hat{\beta}_1 x_{1j} + \hat{\beta}_2 x_{2j} \big) \Big]^2.
+$$
+
+**Are the two RSS comparable (or close in numerical values)? Give a reason (or an excuse) of performance of the LS parameter estimates in Part (a) (i.e., on whether bad parameter estimates could yield not so bad prediction values).**
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+
+# Add fitted values and residuals to dataframe
+
+q1data = q1data %>%
+  mutate(# Fitted values and residuals using Least Squares
+         fitted_LS = lm(Y ~ x1 + x2, data = q1data)$fitted.values,
+         residuals_LS = lm(Y ~ x1 + x2, data = q1data)$residuals,
+         
+         # Fitted values and residuals using true parameter values
+         fitted_true = 3 + x1 + x2,
+         residuals_true = Y - fitted_true)
+```
+
+The $RSS$ of the fitted LS model is approximately $31.870$, while the $RSS$ of the model with the true parameter values is approximately $34.929$.
+
+```{r}
+sum(q1data$residuals_LS^2) # Residuals from Part (a)
+sum(q1data$residuals_true^2) # Residuals from fit with true coefficients
+```
+
+Not only are these two values close to one another, but the $RSS$ of the LS fitted model is actually smaller than that of the true model, despite the LS fitted model's coefficient estimates being far from their true values! The LS model is still able to predict the values of $Y$ fairly well because the poor estimates of $\beta_1$ and $\beta_2$ essentially "counterbalance" each other. Since $\mathrm{Corr}(x_1, x_2) \approx 1$, we have $x_1 \approx x_2$, and so the LS model's predicted values of $Y$ can be written as
+
+$$
+\begin{aligned}
+\hat{Y}^{LS} &= \hat{\beta}_0 + \hat{\beta}_1 x_1 + \hat{\beta}_2 x_2 \\
+&= 3.119 -22.498x_1 + 24.695x_2 \\
+&= (3 + 0.119) + (-23.498 + 1)x_1 + (23.695+1)x_2 \\
+&= (3 + x_1 + x_2) + (0.119 -23.498x_1 + 23.695x_2) \\
+&\approx (\beta_0 + \beta_1 x_1 + \beta_2 x_2) + (0.119-23.498x_1 + 23.695x_1) \\
+&= \hat{Y}^{true} + (0.119 + 0.197x_1),
+\end{aligned}
+$$
+
+where the first term is the predicted value of $Y$ from the model with true parameter values. In our dataset, $x_1 \in [-1.774, 2.274]$, and so the difference $\hat{Y}^{LS} - \hat{Y}^{true} \approx 0.119 + 0.197x_1$ is never too far from $0$. This is why the LS model's fitted values are fairly close to the true model's fitted values, and thus why their $RSS$ values are close to each other.
+
+## Part (d)
+
+**Use the R function `lm.ridge`** **to fit a Ridge regression model with** $\lambda=1$**. Write out the fitted Ridge model. Are the parameter estimates good?**
+
+First, we fit the model using ridge regression with $\lambda=1$:
+
+```{r}
+lm.ridge(Y ~ x1 + x2, lambda = 1,
+         data = q1data)
+```
+
+The fitted model is approximately
+
+$$
+\begin{aligned}
+\hat{Y} &= \hat{\beta}_0 + \hat{\beta}_1 x_1 + \hat{\beta}_2 x_2 \\
+&= 3.152 + 1.038x_1 + 1.082x_2.
+\end{aligned}
+$$
+
+The parameter estimates are excellent now: $\hat{\beta}_0 = 3.152 \approx 3 = \beta_0$, $\hat{\beta}_1 = 1.038 \approx 1 = \beta_1$, and $\hat{\beta}_2 = 1.082 \approx 1 = \beta_2$.
+
+## Part (e): Comparison and Comments
+
+**What is the criterion of the LS method? That is, which function of the model parameters does the LS method try to optimize? What is the function of model parameters that the Ridge regression method tries to optimize? Compare the two methods using the results in Parts (a) and (d). What is the effect on parameter estimates by the Ridge Regression method?**
+
+The LS method chooses $\beta_0, \beta_1, \text{and } \beta_2$ to minimize the sum of squared residuals:
+
+$$
+\hat{\beta}_{LS} = \arg\min_\beta \Big\{ ||Y - \beta_0 - \beta_1 x_1 -\beta_2 x_2||_2^2 \Big\}.
+$$
+
+The ridge regression method chooses $\beta_0, \beta_1, \text{and } \beta_2$ to minimize the sum of squared residuals *plus* a penalty proportional to the squared 2-norm of the coefficient estimates, $\beta=(\beta_0,\beta_1,\beta_2)$:
+
+$$
+\begin{aligned}
+\hat{\beta}_{ridge} &= \arg\min_\beta \Big\{ ||Y - \beta_0 -\beta_1 x_1 - \beta_2 x_2||_2^2 + \lambda||\beta||_2^2 \Big\} \\
+&= \arg\min_\beta \Big\{ ||Y - \beta_0 -\beta_1 x_1 - \beta_2 x_2||_2^2 + ||\beta||_2^2 \Big\},
+\end{aligned}
+$$
+
+since we used $\lambda=1$ in Part (d).
+
+The penalty term in the ridge method's minimization problem forces the model to choose smaller values of $\beta_0, \beta_1, \text{and } \beta_2$ than the LS method. In other words, ridge regression pulls the $\beta_i$ estimates closer to $0$ than ordinary least squares estimation does.
+
+With our toy dataset, this is clearly beneficial. Using just LS estimation, our estimates of $\beta_1$ and $\beta_2$ in Part (a) were far too large (in absolute value) relative to the parameters' true values. The ridge regression in Part (d) pulled the estimates of these parameters much closer to their true, more moderate values of $1$.
+
+# Exercise 2: LASSO Regression Exercise
+
+**The dataset `Boston`** **of 506 observations and 14 variables is on housing values in the suburbs of Boston. The data and variable names can be obtained in R by the commands below.**
+
+```{r}
+data(Boston)
+colnames(Boston)
+```
+
+**The following describe the variables (variable names in capital letters).**
+
+![](images/clipboard-3737721605.png)
+
+![](images/clipboard-2109852389.png)
+
+**More reference information about the data can be found at <https://www.rdocumentation.org/packages/mlbench/versions/2.1-1/topics/BostonHousing>.**
+
+## Part (a)
+
+**Take the variable `medv`** **(median value of owner-occupied homes) as the response variable to fit LASSO regression models, using the first 300 observations as the training set and the rest (206) observations for validation (or calibration; this part of the data is not to be used in cross validation). Interpret your results.**
+
+First, we separate the data out into training and calibration sets:
+
+```{r}
+q2training = Boston[1:300,]
+q2calibration = Boston[301:506,]
+```
+
+Now, we train a model of `mdev` on all other covariates using the training data.
+
+```{r}
+q2X = as.matrix(q2training[,1:13])
+q2Y = q2training[,14]
+
+q2cvfit = cv.glmnet(q2X, q2Y)
+```
+
+To select the tuning parameter $\lambda$, we consider the MSE as a function of $\lambda$. We select $\lambda = \lambda_{1se}$, the largest value of $\lambda$ such that the mean squared error is within one standard error of its minimum. In this case, $\lambda_{1se} \approx 0.307$ (so $\log\lambda_{1se} \approx -1.181$, the rightmost dotted vertical line in the figure).
+
+```{r}
+plot(q2cvfit, label = T)
+q2cvfit$lambda.1se; log(q2cvfit$lambda.1se)
+```
+
+Using $\lambda \approx 0.307$, our fitted model is approximately
+
+$$
+\hat{medv} = -19.634 + 9.164rm -0.020age -0.273dis -0.009tax -0.571ptratio + 0.007black - 0.123lstat.
+$$
+
+The coefficient estimates on $crim, zn, indus, chas, nox, \text{and } rad$ have all been forced to $0$ by the LASSO method.
+
+```{r}
+coef(q2cvfit, s = "lambda.1se")
+```
+
+To check the quality of our model, we compare the actual values of `medv` among observations in the calibration data with the fitted values of `medv` from our LASSO regression, plotted below. For the most part, the (observed, fitted) pairs hug the 45^o^ line, which shows that even eliminating six covariates, our LASSO model still predicts the `medv` values for novel covariate values fairly well.
+
+```{r}
+plot(q2calibration[,14], predict(q2cvfit, newx=as.matrix(q2calibration[,1:13]), s="lambda.1se"), xlab = "Observed", ylab = "Predicted", pch = 16)
+abline(0,1)
+```
+
+## Part (b)
+
+**Compare your fitted LASSO model with the linear model fitted by the ordinary least squares method. Comment.**
+
+Below, we fit a linear model to the data using the OLS method. For a fair comparison, we also fit this model on just the 300 training observations.
+
+```{r}
+lm(medv ~ ., data = q2training) %>% summary()
+```
+
+With respect to some parameters, the OLS method produces very similar estimates as the LASSO method did. For example, our LASSO regression estimated a coefficient of approximately $9.182$ on the `rm` variable, and our OLS regression estimated a statistically significant (at the $\alpha = 0.001$ level) coefficient of approximately $9.131$ on the same variable. Additionally, for some parameters, the OLS method agrees with the LASSO method in terms of dropped covariates. For example, the LASSO regression imposed coefficients of $0$ on the `zn`, `indus`, and `rad` variables, and the OLS regression estimated that the coefficients on each of these variables were not statistically significantly different from $0$ at the $\alpha=0.05$ level. On the other hand, there are some parameters for which the two methods produced very different results. For instance, while the LASSO regression imposed a coefficient of $0$ on the `nox` variable, the OLS regression estimated a statistically significant (at the $\alpha = 0.05$ level) coefficient of approximately $-8.828$ on this variable.
+
+We also plot the OLS regression's fitted values of `mdev` among observations in the calibration data against these observations' true `mdev` values, for comparison with the plot in Part (a). The (observed, fitted) pairs still hug the 45^o^ line for the most part, though predicted values seem systematically too high for small observed values. In general, though, this scatterplot does not look significantly better or worse than the one in Part (a), indicating that our LASSO model was able to reduce the number of model covariates without losing too much predictive power.
+
+```{r}
+plot(q2calibration[,14], predict(lm(medv~., data=q2training), newdata=q2calibration[,1:13]), xlab = "Observed", ylab = "Predicted", pch = 16)
+abline(0,1)
+```
+
+# Exercise 3: PCA vs. Sparse PCA
+
+**The dataset `hearlossData.csv`** **can be input into R by the following commands.**
+
+```{r}
+hearloss = read.csv("C:/Users/rewin/OneDrive/Documents/STAT_32950/Homework/HW7/hearlossData.csv", header = F)
+colnames(hearloss)=c("Left5c", "Left1k", "Left2k", "Left4k", "Right5c", "Right1k", "Right2k", "Right4k")
+```
+
+**The data consists of 100 observations from males, aged 39. The measurements are decibel loss (in comparison to a reference standard) at frequencies 500Hz, 1000Hz, 2000Hz, and 4000Hz for the left and the right ear, respectively. More detailed information can be found in Chapter 5 in the library e-book *A User's Guide to Principal Components* by Jackson.**
+
+## Part (a)
+
+**Conduct a principal component analysis.**
+
+We perform a principal component analysis on the *scaled* (i.e., so that each variable's variance has been scaled to unity) decibel loss data below. Notice that the first two principal components have nonzero loadings on all eight covariates, that the first principal component captures roughly $49.1\%$ of the total variation in the scaled data, and that the second principal component captures roughly $20.2\%$ of the total variation in the scaled data.
+
+```{r}
+q3PCA = princomp(hearloss, cor = T)
+summary(q3PCA, loadings = T, digits = 3)
+```
+
+We also plot the loadings of the eight original hearing loss variables in the plane of the first two principal components. Notice that the variables corresponding to hearing loss (in both ears) at the 500Hz and 1000Hz frequencies are generally plotted in the upper-right of the figure (with relatively large PC1 and PC2 loadings), while the variables corresponding to hearing loss (in both ears) at the 2000Hz and 4000Hz frequencies are generally plotted in the lower-left of the figure (with relatively small PC1 and PC2 loadings).
+
+```{r}
+#| echo: FALSE
+
+ggplot(as.data.frame(q3PCA$loadings[1:8,]),
+       aes(x = Comp.1, y = Comp.2, label = c("L5c", "L1k", "L2k", "L4k",
+                                       "R5c", "R1k", "R2k", "R4k"))) +
+  theme_bw() +
+  geom_point() +
+  geom_text_repel(size = 4) +
+  ggtitle("Hearing Loss Variables in PCA Loadings") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlab("PC1") +
+  ylab("PC2")
+```
+
+## Part (b)
+
+**Conduct a sparse principal component analysis to highlight important frequency relationship in hearing and hearing loss.**
+
+Now, we perform a sparse principal component analysis on the *scaled* (i.e., unit variance) decibel loss data. In particular, we form $K=2$ principal components, each with $4$ nonzero variable loadings. The first principal component captures roughly $37.7\%$ of the total variation in the scaled data, and has nonzero loadings on the variables corresponding to hearing loss at lower frequencies (500Hz and 1000Hz) in both ears. The second principal component captures an additional $25.1\%$ of the total variation in the scaled data, and has nonzero loadings on the variables corresponding to hearing loss at higher frequencies (2000Hz and 4000Hz) in both ears. Thus, the first PC seems to capture a man's hearing loss at lower frequencies (such as 500Hz and 1000Hz), while the second PC seems to capture a man's hearing loss at higher frequencies (such as 2000Hz and 4000Hz).
+
+```{r}
+q3spca = spca(hearloss, K = 2, para = c(4, 4),
+              type = "predictor", sparse = "varnum",
+              use.corr = T) 
+
+q3spca$pev
+q3spca$loadings # Notice that PC1 just has coefficients on 5c and 1k (L&R) while PC2 just has coefficients on 2k and 4k (L&R)
+```
+
+The below plot of the loadings of the eight hearing loss variables in the sparse PC plane further illustrates this point: PC1 captures hearing loss at lower frequencies in both ears, and PC2 captures hearing loss at higher frequencies in both ears. The main takeaway is that variation in 39-year-old men's hearing loss can be pretty well summarized in two dimensions, with one dimension corresponding to hearing loss at lower frequencies and the other corresponding to hearing loss at higher frequencies.
+
+```{r}
+#| echo: FALSE
+
+ggplot(as.data.frame(q3spca$loadings),
+       aes(x = PC1, y = PC2, label = c("L5c", "L1k", "L2k", "L4k",
+                                       "R5c", "R1k", "R2k", "R4k"))) +
+  theme_bw() +
+  geom_point() +
+  geom_text_repel(size = 2) +
+  ggtitle("Hearing Loss Variables in Sparse PCA Loadings") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+
+# Sparse PC scores
+sparse_scores = as.matrix(hearloss) %*% (as.matrix(q3spca$loadings))
+plot(sparse_scores)
+```
+
+# Exercise 4: PCA vs. ICA
+
+**The data `tableICA`** **can be read in R by the command below.**
+
+```{r}
+#| warning: FALSE
+
+tableICA = read.table("C:/Users/rewin/OneDrive/Documents/STAT_32950/Homework/HW7/tableICA")
+```
+
+## Part (a)
+
+**Conduct a Principal Component Analysis. Plot the observations in the space of the first two principal components. Provide the scree plot. Comment on the PCA results.**
+
+We perform a principal component analysis on the *scaled* (i.e., so that each variable's variance has been scaled to unity) data below. The first principal component captures roughly $63.6\%$ of the total variation in the scaled data, and the second principal component captures an additional $31.4\%$ of the total variation, so that the first two PCs together capture just over $95.0\%$ of the total variation in the data. That the first two PCs capture the vast majority of the variation in the data is also illustrated in the scree plot below.
+
+```{r}
+q4pca = princomp(tableICA, cor = T)
+summary(q4pca, loadings = T, digits = 3)
+screeplot(q4pca, main = "PCA Scree Plot")
+```
+
+Now, we plot the scores of the data in the plane of the first two principal components. Notice that the scores seem to fill in a parallelogram-like shape. So, while our analysis produced two PCs that capture the vast majority of the variation in the data, these two PCs are clearly not independent.
+
+```{r}
+ggplot(as.data.frame(q4pca$scores), aes(x=Comp.1, y=Comp.2)) +
+  theme_bw() +
+  geom_point() +
+  xlab("PC1") +
+  ylab("PC2") +
+  ggtitle("Scores in (PC1,PC2) Plane") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+#| echo: FALSE
+#| output: FALSE
+
+# ggplot scree plot
+
+q4pca_props = as.data.frame(q4pca$sdev) %>%
+  rename(sdev = "q4pca$sdev") %>%
+  mutate(var = sdev^2,
+         prop = var/sum(var),
+         pcs = c("PC1", "PC2", "PC3"))
+
+ggplot(q4pca_props, aes(x=pcs, y=var)) +
+  theme_bw() +
+  geom_point() +
+  geom_line(group = 1)
+```
+
+## Part (b)
+
+**Conduct an Independent Component Analysis. Interpret your results. Plot the three independent components recovered.**
+
+Now, we conduct an independent component analysis assuming that there are three independent components.
+
+```{r}
+set.seed(41) # just so that components are in same order every time
+q4ica = fastICA(tableICA, n.comp = 3)
+```
+
+Below are histograms depicting the estimated empirical distributions of the three independent source components. Notice that none of the components appear to have normal distributions: one is roughly symmetric and bimodal, one has a semicircular shape (almost like the Wigner semicircle distribution), and one generally resembles a triangular distribution.
+
+```{r}
+#| echo: FALSE
+
+dens_ic1 = ggplot(as.data.frame(q4ica$S), aes(x=V1, y=after_stat(density))) +
+  theme_bw() +
+  geom_histogram(col = "black", fill = "white", bins = 20) +
+  xlab("IC1") +
+  ggtitle("Estimated Empirical Density of IC1")
+# hist(q4ica$S[,1])
+
+
+dens_ic2 = ggplot(as.data.frame(q4ica$S), aes(x=V2, y=after_stat(density))) +
+  theme_bw() +
+  geom_histogram(col = "black", fill = "white", bins = 20) +
+  xlab("IC2") +
+  ggtitle("Estimated Empirical Density of IC2")
+# hist(q4ica$S[,2])
+
+dens_ic3 = ggplot(as.data.frame(q4ica$S), aes(x=V3, y=after_stat(density))) +
+  theme_bw() +
+  geom_histogram(col = "black", fill = "white", bins = 20) +
+  xlab("IC3") +
+  ggtitle("Estimated Empirical Density of IC3")
+# hist(q4ica$S[,3])
+
+dens_ic1
+dens_ic2
+dens_ic3
+# grid.arrange(dens_ic1, dens_ic2, dens_ic3,
+#              nrow = 3, ncol = 1)
+```
+
+We also plot the "unmixed" data in the three pairwise independent component planes: (IC1, IC2), (IC1, IC3), and (IC2, IC3). While the data in the (IC1, IC2) and (IC1, IC3) planes have vaguely box-like shapes and the data in the (IC2, IC3) plane has a vaguely rainbow-like shape, in none of these planes is the shape of the data as clear as it was in the case of the first two principal components.
+
+```{r}
+#| echo: FALSE
+
+# IC1-IC2 plane
+ic12 = ggplot(as.data.frame(q4ica$S), aes(x=V1,y=V2)) +
+  theme_bw() +
+  geom_point() +
+  xlab("IC1") +
+  ylab("IC2") +
+  ggtitle("Data in (IC1, IC2) Plane")
+# plot(q4ica$S[,1], q4ica$S[,2])
+
+# IC1-IC3 plane
+ic13 = ggplot(as.data.frame(q4ica$S), aes(x=V1,y=V3)) +
+  theme_bw() +
+  geom_point() +
+  xlab("IC1") +
+  ylab("IC3") +
+  ggtitle("Data in (IC1, IC3) Plane")
+# plot(q4ica$S[,1], q4ica$S[,3])
+
+# IC2-IC3 plane
+ic23 = ggplot(as.data.frame(q4ica$S), aes(x=V2,y=V3)) +
+  theme_bw() +
+  geom_point() +
+  xlab("IC2") +
+  ylab("IC3") +
+  ggtitle("Data in (IC2, IC3) Plane")
+# plot(q4ica$S[,2], q4ica$S[,3])
+
+ic12
+ic13
+ic23
+# grid.arrange(ic12, ic13, ic23,
+#              nrow = 3, ncol = 1)
+```
+
+## Part (c)
+
+**Compare Parts (a) and (b) and comment.**
+
+In Part (a), we found that the first two principal components captured roughly $95\%$ of the variation in the data, but when the data were plotted in the coordinate plane of these two PCs, they formed a distinctly parallelogram-shaped cloud. That is, the first two principal components of the data are not independent of each other.
+
+In Part (b), we produced three independent components and found that none of their estimated empirical densities resembled a normal distribution — as is expected in ICA. When we plotted the data in the three pairwise coordinate planes for these three independent components, we found that none of the data clouds had very distinct shapes — meaning that we found three independent components that really do seem independent of one another.
+
+Both methods yield valuable results for analyzing these data. While PCA allowed us to view the three-dimensional data in a two-dimensional plane that still captured the vast majority of the variation in the data, ICA allowed us to discern three independent, non-Gaussian signals that underlie the data.
